@@ -13,16 +13,9 @@ import uvicorn
 import zipfile
 import os
 
-# ---------------- Helper to get LAN IP ----------------
-def get_local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-    finally:
-        s.close()
-    return ip
-
+# ---------------- Helper to get BASE URL ----------------
+def get_base_url():
+    return os.getenv("BASE_URL", "http://localhost:8000")  # fallback for local dev
 
 # ---------------- DB ----------------
 def init_db():
@@ -64,8 +57,8 @@ def generate_single_qr():
     conn.commit()
     conn.close()
 
-    local_ip = get_local_ip()
-    qr_url = f"http://{local_ip}:8000/claim/{qr_id}"
+    base_url = get_base_url()
+    qr_url = f"{base_url}/claim/{qr_id}"
 
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(qr_url)
@@ -83,7 +76,7 @@ def generate_single_qr():
 def generate_bulk_qrs():
     qr_ids = []
     qr_images = []
-    local_ip = get_local_ip()
+    base_url = get_base_url()
     
     # Create directory for QR codes if it doesn't exist
     if not os.path.exists('qr_codes'):
@@ -100,7 +93,7 @@ def generate_bulk_qrs():
         cursor.execute('INSERT INTO qr_codes (id, is_used) VALUES (?, ?)', (qr_id, False))
         
         # Generate QR code
-        qr_url = f"http://{local_ip}:8000/claim/{qr_id}"
+        qr_url = f"{base_url}/claim/{qr_id}"
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
         qr.add_data(qr_url)
         qr.make(fit=True)
@@ -164,7 +157,7 @@ def claim_qr_logic(qr_id):
             return claim_qr_logic(qr_id)
     else:
         conn.close()
-        return False, f"⚠️ {qr_id} already claimed by {claimed_by} at {claimed_at}"
+        return False, f"⚠ {qr_id} already claimed by {claimed_by} at {claimed_at}"
 
 
 def claim_qr(qr_id):
@@ -207,7 +200,7 @@ with gr.Blocks(css="""
 """) as demo:
     
     gr.Markdown("# 🎁 QR Code One-Time System")
-    gr.Markdown("*Generate secure QR codes that can only be claimed once*")
+    gr.Markdown("Generate secure QR codes that can only be claimed once")
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -256,6 +249,7 @@ app = FastAPI()
 @app.get("/claim/{qr_id}", response_class=HTMLResponse)
 def claim_api(qr_id: str):
     success, msg = claim_qr_logic(qr_id)
+    base_url = get_base_url()
     
     # Enhanced HTML with beautiful UI
     if success:
@@ -407,10 +401,11 @@ def claim_api(qr_id: str):
                 {msg.replace('<br>', '<br>')}
             </div>
             
+    
             
         </div>
         
-        
+    
     </body>
     </html>
     """
@@ -421,7 +416,7 @@ def claim_api(qr_id: str):
 def run_fastapi():
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     init_db()
     # Run FastAPI in background thread
     threading.Thread(target=run_fastapi, daemon=True).start()
