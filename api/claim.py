@@ -46,3 +46,8 @@ def claim_api(qr_id: str):
       </body>
     </html>
     """
+
+# ✅ Export as Vercel handler
+# This tells Vercel how to serve FastAPI
+from mangum import Mangum
+handler = Mangum(app)

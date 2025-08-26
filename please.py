@@ -10,7 +10,7 @@ import os
 
 # ---------------- Helper to get BASE URL ----------------
 def get_base_url():
-    return os.getenv("BASE_URL", "https://your-vercel-app.vercel.app")  # <- use Vercel domain
+    return os.getenv("BASE_URL", "https://onetime-qr.vercel.app/")  # <- use Vercel domain
 
 # ---------------- DB ----------------
 def init_db():
