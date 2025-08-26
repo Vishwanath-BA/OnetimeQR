@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+qr_codes.db
+qr_codes/
+qr_codes_bulk.zip
+.env
