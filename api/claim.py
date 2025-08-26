@@ -4,8 +4,8 @@ from datetime import datetime
 import uuid
 import os
 from pymongo import MongoClient
-from mangum import Mangum
 import certifi
+
 # ---------------- MongoDB Connection ----------------
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("DB_NAME", "Onetimeqr")
@@ -13,7 +13,7 @@ COLLECTION_NAME = "qr_codes"
 
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
-collection = db["qr_codes"]
+collection = db[COLLECTION_NAME]
 
 # ---------------- FastAPI App ----------------
 app = FastAPI()
@@ -58,6 +58,3 @@ def claim_api(qr_id: str):
       </body>
     </html>
     """
-
-# ---------------- Vercel Handler ----------------
-handler = Mangum(app)

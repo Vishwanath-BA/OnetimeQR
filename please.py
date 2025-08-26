@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime
 from pymongo import MongoClient
-import certifi
+
 # ---------------- Helper to get BASE URL ----------------
 def get_base_url():
     return os.getenv("BASE_URL", "https://onetime-qr.vercel.app")  # <- use your Vercel domain
@@ -16,9 +16,9 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("DB_NAME", "Onetimeqr")
 COLLECTION_NAME = "qr_codes"
 
-client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
-collection = db["qr_codes"]
+collection = db[COLLECTION_NAME]
 
 # ---------------- DB Functions ----------------
 def list_codes():

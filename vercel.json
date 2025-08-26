@@ -1,9 +1,14 @@
 {
-  "version": 2,
   "builds": [
-    { "src": "api/claim.py", "use": "@vercel/python" }
+    {
+      "src": "claim.py",
+      "use": "@vercel/python"
+    }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "api/claim.py" }
+    {
+      "src": "/claim/(.*)",
+      "dest": "claim.py"
+    }
   ]
 }

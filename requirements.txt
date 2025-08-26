@@ -1,7 +1,6 @@
 fastapi
 uvicorn
 qrcode
-mangum
-pymongo
+pymongo[srv]
 certifi
 python-dotenv
