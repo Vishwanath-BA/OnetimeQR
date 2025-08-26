@@ -3,3 +3,5 @@ uvicorn
 qrcode
 mangum
 pymongo
+certifi
+python-dotenv

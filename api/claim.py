@@ -5,15 +5,15 @@ import uuid
 import os
 from pymongo import MongoClient
 from mangum import Mangum
-
+import certifi
 # ---------------- MongoDB Connection ----------------
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("DB_NAME", "Onetimeqr")
 COLLECTION_NAME = "qr_codes"
 
-client = MongoClient(MONGO_URI)
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
+collection = db["qr_codes"]
 
 # ---------------- FastAPI App ----------------
 app = FastAPI()
