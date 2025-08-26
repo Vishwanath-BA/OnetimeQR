@@ -1,41 +1,53 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from datetime import datetime
-import sqlite3
 import uuid
+import os
+from pymongo import MongoClient
+from mangum import Mangum
 
+# ---------------- MongoDB Connection ----------------
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+DB_NAME = os.getenv("DB_NAME", "Onetimeqr")
+COLLECTION_NAME = "qr_codes"
+
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
+
+# ---------------- FastAPI App ----------------
 app = FastAPI()
 
-def claim_qr_logic(qr_id):
-    conn = sqlite3.connect('qr_codes.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT is_used, claimed_by, claimed_at FROM qr_codes WHERE id = ?', (qr_id,))
-    result = cursor.fetchone()
+def claim_qr_logic(qr_id: str):
+    qr_doc = collection.find_one({"id": qr_id})
 
-    if not result:
-        conn.close()
+    if not qr_doc:
         return False, f"❌ QR Code {qr_id} not found!"
 
-    is_used, claimed_by, claimed_at = result
-
-    if not is_used:
+    if not qr_doc.get("is_used", False):
         user_id = f"User_{uuid.uuid4().hex[:6]}"
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute('''
-            UPDATE qr_codes 
-            SET is_used = ?, claimed_by = ?, claimed_at = ?
-            WHERE id = ? AND is_used = ?
-        ''', (True, user_id, current_time, qr_id, False))
-        if cursor.rowcount > 0:
-            conn.commit()
-            conn.close()
+
+        result = collection.update_one(
+            {"id": qr_id, "is_used": False},
+            {"$set": {
+                "is_used": True,
+                "claimed_by": user_id,
+                "claimed_at": current_time
+            }}
+        )
+
+        if result.modified_count > 0:
             return True, f"🎉 {qr_id} claimed at {current_time} by {user_id}.<br><b>Reward: WINNER50</b>"
-    conn.close()
-    return False, f"⚠️ {qr_id} already claimed!"
+        else:
+            return claim_qr_logic(qr_id)  # retry in case of race
+    else:
+        return False, f"⚠️ {qr_id} already claimed by {qr_doc['claimed_by']} at {qr_doc['claimed_at']}"
 
 @app.get("/claim/{qr_id}", response_class=HTMLResponse)
 def claim_api(qr_id: str):
     success, msg = claim_qr_logic(qr_id)
+
     return f"""
     <html>
       <head><title>QR Claim</title></head>
@@ -47,7 +59,5 @@ def claim_api(qr_id: str):
     </html>
     """
 
-# ✅ Export as Vercel handler
-# This tells Vercel how to serve FastAPI
-from mangum import Mangum
+# ---------------- Vercel Handler ----------------
 handler = Mangum(app)
