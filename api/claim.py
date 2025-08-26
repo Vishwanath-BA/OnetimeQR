@@ -1,9 +1,10 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from datetime import datetime
 import uuid
 import os
 from pymongo import MongoClient
+from mangum import Mangum
 import certifi
 
 # ---------------- MongoDB Connection ----------------
@@ -18,6 +19,25 @@ collection = db[COLLECTION_NAME]
 # ---------------- FastAPI App ----------------
 app = FastAPI()
 
+# ---------------- Add QR Endpoint ----------------
+@app.post("/add_qr/{qr_id}")
+def add_qr(qr_id: str):
+    """Insert a new QR code into DB if not exists."""
+    existing = collection.find_one({"id": qr_id})
+    if existing:
+        return JSONResponse({"status": "exists", "id": qr_id})
+
+    doc = {
+        "id": qr_id,
+        "is_used": False,
+        "claimed_by": None,
+        "claimed_at": None
+    }
+    collection.insert_one(doc)
+    return JSONResponse({"status": "inserted", "id": qr_id})
+
+
+# ---------------- Claim Logic ----------------
 def claim_qr_logic(qr_id: str):
     qr_doc = collection.find_one({"id": qr_id})
 
@@ -44,6 +64,7 @@ def claim_qr_logic(qr_id: str):
     else:
         return False, f"⚠️ {qr_id} already claimed by {qr_doc['claimed_by']} at {qr_doc['claimed_at']}"
 
+
 @app.get("/claim/{qr_id}", response_class=HTMLResponse)
 def claim_api(qr_id: str):
     success, msg = claim_qr_logic(qr_id)
@@ -58,3 +79,7 @@ def claim_api(qr_id: str):
       </body>
     </html>
     """
+
+
+# ---------------- Vercel Handler ----------------
+handler = Mangum(app)

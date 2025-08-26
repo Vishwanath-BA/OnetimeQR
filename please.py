@@ -1,149 +1,121 @@
-import gradio as gr
-import qrcode
-import io
-import base64
-import os
 import uuid
-from datetime import datetime
-from pymongo import MongoClient
+import zipfile
+import io
+import requests
+import qrcode
+from PIL import Image
+import gradio as gr
 
-# ---------------- Helper to get BASE URL ----------------
-def get_base_url():
-    return os.getenv("BASE_URL", "https://onetime-qr.vercel.app")  # <- use your Vercel domain
+# ---------------- Backend URL ----------------
+BACKEND_URL = "https://onetime-qr.vercel.app"   # change if needed
 
-# ---------------- MongoDB Setup ----------------
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-DB_NAME = os.getenv("DB_NAME", "Onetimeqr")
-COLLECTION_NAME = "qr_codes"
 
-client = MongoClient(MONGO_URI)
-db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
-
-# ---------------- DB Functions ----------------
-def list_codes():
-    codes = collection.find().sort("claimed_at", -1)
-    status = ""
-    for c in codes:
-        if c.get("is_used", False):
-            status += f"❌ {c['id']} used by {c.get('claimed_by')} at {c.get('claimed_at')}\n"
+def register_qr_in_db(qr_id: str):
+    """Notify backend to insert QR code into MongoDB."""
+    try:
+        r = requests.post(f"{BACKEND_URL}/add_qr/{qr_id}")
+        if r.status_code == 200:
+            print(f"[DB] QR {qr_id} added →", r.json())
         else:
-            status += f"✅ {c['id']} available\n"
-    return status if status else "No codes yet!"
+            print(f"[DB ERROR] {r.text}")
+    except Exception as e:
+        print("Error adding QR:", e)
 
+
+# ---------------- Single QR Generator ----------------
 def generate_single_qr():
-    qr_id = str(uuid.uuid4())[:8].upper()
-    collection.insert_one({
-        "id": qr_id,
-        "is_used": False,
-        "claimed_by": None,
-        "claimed_at": None
-    })
+    qr_id = uuid.uuid4().hex[:8].upper()
+    qr_url = f"{BACKEND_URL}/claim/{qr_id}"
 
-    base_url = get_base_url()
-    qr_url = f"{base_url}/claim/{qr_id}"
+    # Register in DB
+    register_qr_in_db(qr_id)
 
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(qr_url)
-    qr.make(fit=True)
+    # Generate QR code image
+    qr = qrcode.make(qr_url)
 
-    img = qr.make_image(fill_color="black", back_color="white")
-    img_buffer = io.BytesIO()
-    img.save(img_buffer, format="PNG")
-    img_str = base64.b64encode(img_buffer.getvalue()).decode()
-    img_html = f"<div style='text-align:center; padding:20px; border:2px solid #ddd; border-radius:10px; background:#f9f9f9;'><img src='data:image/png;base64,{img_str}' width='250'><br><b style='color:#333;'>ID:</b> <span style='color:#007bff; font-weight:bold;'>{qr_id}</span><br><b style='color:#333;'>URL:</b> <code style='background:#e9ecef; padding:2px 6px; border-radius:3px;'>{qr_url}</code></div>"
+    # ✅ Ensure it's a proper PIL.Image
+    if hasattr(qr, "get_image"):
+        qr = qr.get_image()
 
-    return img_html, list_codes()
+    return qr, qr_id, qr_url
 
-def generate_bulk_qrs():
-    qr_ids = []
-    qr_images = []
-    base_url = get_base_url()
 
-    if not os.path.exists('qr_codes'):
-        os.makedirs('qr_codes')
+# ---------------- Bulk QR Generator ----------------
+def generate_bulk_qr(n=10):
+    buffer = io.BytesIO()
+    zipf = zipfile.ZipFile(buffer, "w")
 
-    for i in range(10):
-        qr_id = str(uuid.uuid4())[:8].upper()
-        qr_ids.append(qr_id)
-        collection.insert_one({
-            "id": qr_id,
-            "is_used": False,
-            "claimed_by": None,
-            "claimed_at": None
-        })
+    qr_list = []
 
-        qr_url = f"{base_url}/claim/{qr_id}"
-        qr = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr.add_data(qr_url)
-        qr.make(fit=True)
+    for _ in range(n):
+        qr_id = uuid.uuid4().hex[:8].upper()
+        qr_url = f"{BACKEND_URL}/claim/{qr_id}"
 
-        img = qr.make_image(fill_color="black", back_color="white")
-        img_path = f'qr_codes/qr_{qr_id}.png'
-        img.save(img_path)
+        # Register in DB
+        register_qr_in_db(qr_id)
 
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format="PNG")
-        img_str = base64.b64encode(img_buffer.getvalue()).decode()
-        qr_images.append(f"<div style='display:inline-block; margin:10px; padding:15px; border:1px solid #ddd; border-radius:8px; background:white; text-align:center;'><img src='data:image/png;base64,{img_str}' width='150'><br><small style='font-weight:bold; color:#007bff;'>{qr_id}</small></div>")
+        # Generate QR code image
+        qr = qrcode.make(qr_url)
+        if hasattr(qr, "get_image"):
+            qr = qr.get_image()
 
-    zip_path = 'qr_codes_bulk.zip'
-    import zipfile
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for qr_id in qr_ids:
-            img_path = f'qr_codes/qr_{qr_id}.png'
-            zipf.write(img_path, f'qr_{qr_id}.png')
+        img_bytes = io.BytesIO()
+        qr.save(img_bytes, format="PNG")
+        img_bytes.seek(0)
 
-    gallery_html = f"<div style='background:#f8f9fa; padding:20px; border-radius:10px;'><h3 style='color:#28a745; margin-bottom:15px;'>✅ Generated 10 QR Codes Successfully!</h3><div style='max-height:400px; overflow-y:auto;'>{''.join(qr_images)}</div><p style='margin-top:15px; color:#666;'><b>IDs:</b> {', '.join(qr_ids)}</p></div>"
+        # Add to ZIP
+        zipf.writestr(f"{qr_id}.png", img_bytes.getvalue())
+        qr_list.append(f"{qr_id} → {qr_url}")
 
-    return gallery_html, list_codes(), zip_path
+    zipf.close()
+    buffer.seek(0)
 
-def reset_all():
-    collection.update_many({}, {"$set": {"is_used": False, "claimed_by": None, "claimed_at": None}})
-    return "🔄 All QR codes reset!", list_codes()
+    return buffer, "\n".join(qr_list)
+
 
 # ---------------- Gradio UI ----------------
-with gr.Blocks() as demo:
-    gr.Markdown("# 🎁 QR Code One-Time System")
-    gr.Markdown("*Generate secure QR codes that can only be claimed once*")
+with gr.Blocks(theme=gr.themes.Soft()) as demo:
+    gr.Markdown("🎁 **QR Code One-Time System**\n\nGenerate secure QR codes that can only be claimed once")
 
     with gr.Row():
-        with gr.Column(scale=1):
-            gen_single_btn = gr.Button("➕ Generate Single QR Code")
-        with gr.Column(scale=1):
-            gen_bulk_btn = gr.Button("📦 Generate 10 QR Codes")
-        with gr.Column(scale=1):
-            reset_btn = gr.Button("🔄 Reset All")
+        btn_single = gr.Button("➕ Generate Single QR Code")
+        btn_bulk = gr.Button("📦 Generate 10 QR Codes")
+        btn_reset = gr.Button("🔄 Reset All")
 
     with gr.Row():
-        with gr.Column(scale=2):
-            qr_output = gr.HTML(label="Generated QR Code(s)")
-            download_file = gr.File(label="Download ZIP (for bulk generation)", visible=False)
-        with gr.Column(scale=1):
-            db_output = gr.Textbox(label="📊 Database Status", interactive=False, lines=15, max_lines=20)
+        qr_img = gr.Image(type="pil", label="Generated QR Code")
+        db_status = gr.Textbox(label="Database Status (QRs)", interactive=False)
 
-    gr.Markdown("---")
-    gr.Markdown("### 🔧 Manual Testing")
+    qr_id_out = gr.Textbox(label="QR ID")
+    qr_url_out = gr.Textbox(label="QR URL")
 
-    with gr.Row():
-        with gr.Column(scale=3):
-            claim_id = gr.Textbox(label="Enter QR ID to Claim")
-        with gr.Column(scale=1):
-            claim_btn = gr.Button("✅ Claim")
+    zip_out = gr.File(label="Download Bulk ZIP")
 
-    claim_output = gr.Textbox(label="Claim Result", interactive=False)
+    # Single QR callback
+    def single_callback():
+        img, qr_id, qr_url = generate_single_qr()
+        return img, qr_id, qr_url, f"{qr_id} available"
 
-    gen_single_btn.click(fn=generate_single_qr, outputs=[qr_output, db_output])
+    btn_single.click(single_callback, outputs=[qr_img, qr_id_out, qr_url_out, db_status])
 
-    def handle_bulk_generation():
-        gallery, status, zip_path = generate_bulk_qrs()
-        return gallery, status, gr.update(value=zip_path, visible=True)
+    # Bulk QR callback
+    def bulk_callback():
+        zip_file, qr_list = generate_bulk_qr(10)
+        return zip_file, qr_list
 
-    gen_bulk_btn.click(fn=handle_bulk_generation, outputs=[qr_output, db_output, download_file])
-    claim_btn.click(fn=lambda x: ("Use the Vercel endpoint to claim", list_codes()), inputs=claim_id, outputs=[claim_output, db_output])
-    reset_btn.click(fn=reset_all, outputs=[claim_output, db_output])
+    btn_bulk.click(bulk_callback, outputs=[zip_out, db_status])
 
-    demo.load(fn=list_codes, outputs=db_output)
+    # Reset DB button (calls backend directly)
+    def reset_db():
+        try:
+            r = requests.post(f"{BACKEND_URL}/reset")
+            return "✅ DB Reset Successful!" if r.status_code == 200 else f"❌ Reset failed: {r.text}"
+        except Exception as e:
+            return f"⚠️ Error resetting DB: {e}"
 
+    btn_reset.click(reset_db, outputs=[db_status])
+
+
+# ---------------- Run App ----------------
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", share=True)
+    demo.launch(server_name="0.0.0.0", server_port=7860)
